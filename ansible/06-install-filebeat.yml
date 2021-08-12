@@ -1,0 +1,29 @@
+ 
+- name: Create certs 
+  hosts: localhost 
+  vars: 
+     
+    
+    vault_ips: "{{ groups['vaults'] | map('extract', hostvars, ['ansible_host']) | list }}"
+    vault_hostnames: "{{ groups['vaults'] | list }}"
+    consul_ips: "{{ groups['consuls'] | map('extract', hostvars, ['ansible_host']) | list }}"
+    consul_hostnames: "{{ groups['consuls'] | list }}"
+
+    vault_map: "{{ (vault_hostnames | zip(vault_ips)) | list }}"  
+    consul_map: "{{ (consul_hostnames | zip(consul_ips)) | list }}"  
+    
+    TYPE: 'filebeat_client'
+    MACHINE_MAPPING: "{{ vault_map + consul_map  }}"  
+ 
+  roles:
+    - certs-gen
+
+- name: Deploy filebeat
+  hosts: vaults, consuls 
+  become: true
+  vars:
+    TYPE: 'filebeat_client'
+    LOGSTASH_IP: "{{hostvars['elk01']['ansible_host']}}"
+  roles:
+    - deploy-filebeat
+ 

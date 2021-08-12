@@ -1,0 +1,12 @@
+
+- name: Pre-req
+  hosts: localhost
+  gather_facts: no 
+  become: true
+  
+  tasks:
+    
+    
+    - name: Start consul
+      debug:
+        msg: " {{lookup('file','{{playbook_dir}}/configs/elasticsearch/vault_audit_syslog_indexpolicy.json')}} "

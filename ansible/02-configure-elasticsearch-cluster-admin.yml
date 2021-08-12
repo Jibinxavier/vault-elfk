@@ -1,0 +1,109 @@
+---
+# Playbooks here creates an admin cert, hashes the logstash
+# password stored in Vault and updates the config /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/internal_users.yml
+# Finally, runs the securityadmin.sh to apply the changes
+- name: Pre-req
+  hosts: elasticnodes 
+  gather_facts: no 
+  become: true 
+  tasks:
+    - include_vars:  dir=vars  
+    - name: Fail if vault_token not set
+      fail: msg="This play requires vault_token use --extra  --extra-vars 'vault_token=<token>'"
+      when: vault_token is not defined
+
+    - name: Retrieving LOGSTASH pass from vault (Assuming passwords are stored in vault) and change this validate_certs false
+      uri:
+        url: "{{vault_addr}}{{item}}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{vault_token}}" 
+        validate_certs: false
+      with_items:
+        - /v1/kv/openstack-dev/LOGSTASH_PASS  
+      register: output
+      no_log: true 
+
+    - name: Set LOGSTASH pass    
+      set_fact: 
+        LOGSTASH_PASS: "{{output.results[0].json.data.value}}" 
+
+# ca.crt was initially used for setting up 
+- name: Create Admin cert
+  hosts: localhost
+  
+  vars: 
+    elasticnodes_ip: "{{ groups['elasticnodes'] | map('extract', hostvars, ['ansible_host']) | list }}"
+    subj_alt_name: "{{ ['IP:'] | product( elasticnodes_ip) | map('join', '') |  join(',')  }}"
+ 
+  tasks:
+    #  have to use pkcs8
+    - name: ES-ADMIN- Generate an OpenSSL private key(4096 bits, RSA)pkcs8 
+      community.crypto.openssl_privatekey:
+        path: "{{playbook_dir}}/configs/certs/es_admin.pem" 
+        format: "pkcs8"
+ 
+    - name:  ES-ADMIN- Generate an OpenSSL Certificate Signing Request  
+      openssl_csr:
+        path: "{{playbook_dir}}/configs/certs/es_admin.csr"
+        privatekey_path: "{{playbook_dir}}/configs/certs/es_admin.pem"
+        common_name: "es_admin"  
+        organizational_unit_name: "es_admin"
+        organization_name: "es_admin"
+        locality_name: "test"
+        subject_alt_name: "IP:127.0.0.1,{{subj_alt_name}}"
+        basicConstraints: 'CA:FALSE'
+        key_usage:
+          - 'Digital Signature'
+          - 'Key Encipherment'
+          - 'Non Repudiation'
+        extended_key_usage: 
+          - 'TLS Web Client Authentication'
+ 
+    - name: ES-ADMIN - Sign a cert using own CA
+      openssl_certificate:
+        path: "{{playbook_dir}}/configs/certs/es_admin.crt"
+        csr_path: "{{playbook_dir}}/configs/certs/es_admin.csr"
+        ownca_path:   "{{playbook_dir}}/configs/certs/main-ca.crt"
+        ownca_privatekey_path: "{{playbook_dir}}/configs/certs/main-ca.pem"
+        provider: ownca 
+      
+
+    - name: verify certs 
+      shell: "openssl verify -CAfile {{playbook_dir}}/configs/certs/main-ca.crt {{playbook_dir}}/configs/certs/es_admin.crt" 
+
+- name: Deploy root and admin certs 
+  hosts: elasticnodes
+  become: true 
+
+  tasks:
+    - name: Distribute certs
+      copy:
+        src: "{{playbook_dir}}/configs/certs/{{item.src}}" # link to ansible special variables https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html
+        dest: "/usr/share/elasticsearch/plugins/opendistro_security/securityconfig/{{item.dest}}"
+        owner: elasticsearch
+        group: elasticsearch
+        mode: '0440' 
+      with_items: 
+        - { src: "es_admin.crt", dest: "es_admin.crt" }
+        - { src: "es_admin.pem", dest: "es_admin.pem" }
+
+    
+    # tail because first line will be java warning
+    - name: Hash of logstash pass  (there must be a better way other than using hash)
+      shell: "/usr/share/elasticsearch/plugins/opendistro_security/tools/hash.sh -p {{LOGSTASH_PASS}}|tail -n 1"   
+      register: LOGSTASH_PASS_HASH
+      no_log: true
+
+    - name: Replace old logstash password hash
+      replace:
+        path: /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/internal_users.yml
+        after: 'logstash:'
+        before: 'reserved:'
+        regexp: 'hash:.*'
+        replace: "hash: \"{{LOGSTASH_PASS_HASH.stdout}}\"" 
+      no_log: true
+    - name: Apply securityadmin.sh      
+      command: "/usr/share/elasticsearch/plugins/opendistro_security/tools/securityadmin.sh  -cacert /etc/elasticsearch/root-ca.crt   -cert /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/es_admin.crt -key /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/es_admin.pem   -cd /usr/share/elasticsearch/plugins/opendistro_security/securityconfig/ -hostname {{ansible_ssh_host}} -icl -nrhn"
+
+   

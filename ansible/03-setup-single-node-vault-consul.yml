@@ -1,0 +1,122 @@
+
+- name: Pre-req
+  hosts: localhost 
+  gather_facts: no 
+  tasks:
+    - name: Fail if vault_token not set
+      fail: msg="This play requires vault_token use --extra  --extra-vars 'vault_token=<token>'"
+      when: vault_token is not defined
+
+# needs become true for retrieving
+- name:  Get passwords
+  hosts: consuls,vaults 
+  gather_facts: no
+  become: true
+  tasks:
+  
+    - include_vars:  dir=vars   
+    - name: Retrieving GOSSIP_ENCRPYPTION_KEY pass from vault
+      uri:
+        url: "{{vault_addr}}{{item}}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{vault_token}}"
+        validate_certs: false # REMOVE THIS
+      with_items:
+        - /v1/kv/openstack-dev/GOSSIP_ENCRPYPTION_KEY
+      register: output
+      no_log: true
+
+    - name: Set GOSSIP_ENCRPYPTION_KEY pass    
+      set_fact: 
+        GOSSIP_ENCRPYPTION_KEY: "{{output.results[0].json.data.value}}" 
+      no_log: true
+
+
+- name: Create Vault certs
+  hosts: localhost 
+  vars:  
+    servers: 'vaults'
+    main_nodes_ips: "{{ groups[servers] | map('extract', hostvars, ['ansible_host']) | list }}"
+    hostnames: "{{ groups[servers] | list }}"
+    TYPE: 'vault_server'
+    MACHINE_MAPPING: "{{ (hostnames | zip(main_nodes_ips)) | list }}"     
+ 
+  roles:
+    - certs-gen
+
+  
+
+- name: Create Consul Server certs and gossip encryption key
+  hosts: localhost 
+  vars: 
+    servers: 'consuls'
+    
+    main_nodes_ips: "{{ groups[servers] | map('extract', hostvars, ['ansible_host']) | list }}"
+    hostnames: "{{ groups[servers] | list }}"
+    TYPE: 'server'
+    MACHINE_MAPPING: "{{ (hostnames | zip(main_nodes_ips)) | list }}"  
+  roles:
+    - certs-gen
+
+ 
+- name: Create Consul agent certs
+  hosts: localhost 
+  vars: 
+    servers: 'vaults'
+    main_nodes_ips: "{{ groups[servers] | map('extract', hostvars, ['ansible_host']) | list }}"
+    hostnames: "{{ groups[servers] | list }}"
+    TYPE: 'consul_agent'
+    MACHINE_MAPPING: "{{ (hostnames | zip(main_nodes_ips)) | list }}"  
+  roles:
+    - certs-gen
+
+
+- name: Create Consul cluster 
+  hosts: consuls
+  become: true
+  vars: 
+    CONSUL_VERSION: "1.8.0"
+    CONSUL_URL: "https://releases.hashicorp.com/consul"
+    CONSUL_DEPOLYMENT_TYPE: server
+    CONSUL_SERVER_IP_LIST: "{{ groups['consuls'] | map('extract', hostvars, ['ansible_host'])  | list| to_json}}"
+    
+  roles:
+    - deploy-consul 
+
+- name: Deploy consul agent  
+  hosts: vaults
+  become: true
+  vars: 
+    CONSUL_VERSION: "1.8.0"
+    CONSUL_URL: "https://releases.hashicorp.com/consul"
+    ENCRYPTION_KEY: "{{encrp.stdout}}"
+    CONSUL_DEPOLYMENT_TYPE: agent
+    CONSUL_SERVER_IP_LIST: "{{ groups['consuls'] | map('extract', hostvars, ['ansible_host'])  | list| to_json }}"
+
+  roles:
+    - deploy-consul 
+
+
+- name: Get consul members
+  hosts: consuls,vaults
+  become: true
+  tasks:
+    - name: consul members
+      command: consul members 
+      ignore_errors: yes 
+      register: output 
+
+    - debug:
+        msg: "{{output}}"
+
+- name: Stand up vault 
+  hosts: vaults
+  become: true    
+ 
+  vars:
+     
+    VAULT_VERSION: "1.7.0"
+    VAULT_URL: "https://releases.hashicorp.com/vault"
+  roles:
+    - deploy-vault 

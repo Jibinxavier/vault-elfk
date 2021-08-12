@@ -1,0 +1,133 @@
+input {
+    beats {
+        port => 5044
+        ssl => true
+        ssl_certificate => "/etc/logstash/{{ansible_hostname}}_{{TYPE}}.crt"
+        ssl_certificate_authorities => ["/etc/logstash/main-ca.crt"]
+        ssl_key => "/etc/logstash/{{ansible_hostname}}_{{TYPE}}.pem"
+        ssl_verify_mode => "force_peer"
+    }
+}
+
+#https://github.com/logstash-plugins/logstash-patterns-core/blob/master/patterns/ecs-v1/grok-patterns
+
+filter {
+  if [system][syslog][program] == "filebeat" {
+      drop { }
+  } else if [fields][consul_backup]{
+    grok {
+      match => { "message" => ["%{CONSULLOGTIME:[timestamp]} %{LOGLEVEL:loglevel} %{GREEDYMULTILINE:[message]}"] }
+      patterns_dir => ["/etc/logstash/grok-patterns"]
+      overwrite => [ "message" ]
+      add_field => { "[@metadata][indexPrefix]" => "consul_backup_%{+YYYY.MM}" }
+    }
+    date {
+      match => [ "[timestamp]", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss", "    yyyy/MM/dd HH:mm:ss", "ISO8601"]
+    }
+  } else if [fields][consul] and "consul" in [host][hostname] { # to separate consul agent and consul server log
+    grok {
+      patterns_dir => ["/etc/logstash/grok-patterns"]
+      match => { "message" => ["%{CONSULLOGTIME:[timestamp]} \[%{LOGLEVEL:[loglevel]}\] %{GREEDYMULTILINE:[message]}"] }
+      overwrite => [ "message" ]
+      add_field => { "[@metadata][indexPrefix]" => "consul_server_%{+YYYY.MM}"  }
+    }
+    date {
+      match => [ "[timestamp]", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss", "    yyyy/MM/dd HH:mm:ss", "ISO8601"]
+    }
+  }
+    # consul agent 
+  else if [fields][consul] and "vault" in [host][hostname] {
+    grok {
+      patterns_dir => ["/etc/logstash/grok-patterns"]
+      match => { "message" => ["%{CONSULLOGTIME:[timestamp]} \[%{LOGLEVEL:[loglevel]}\] %{GREEDYMULTILINE:[message]}"] }
+      overwrite => [ "message" ]
+      add_field => { "[@metadata][indexPrefix]" => "consul_agent_%{+YYYY.MM}"  }
+    }
+    date {
+      match => [ "[timestamp]", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss", "    yyyy/MM/dd HH:mm:ss", "ISO8601"]
+    }
+  } else if [fields][vault_audit_log_syslog]{ # if this log is parsed from the syslog
+    grok {
+      match => { "message" => ["%{SYSLOGTIMESTAMP:[system][syslog][timestamp]} %{SYSLOGHOST:[system][syslog][hostname]} %{DATA:[system][syslog][program]}(?:\[%{POSINT:[system][syslog][pid]}\])?: %{JSON:vault_audit_payload_unparsed}"] }
+      patterns_dir => ["/etc/logstash/grok-patterns"]
+      remove_field => "message"
+      # Note: it is possible to use already existing fields e.g "vault_audit_%{+YYYY.MM.dd}_%{[host][hostname]}"
+      add_field => { "[@metadata][indexPrefix]" => "vault_audit_syslog_%{+YYYY.MM.dd}" }
+    }
+    date {
+      match => [ "[system][syslog][timestamp]", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss" ]
+    }
+    json {
+      source => "vault_audit_payload_unparsed"
+      target => "vault_audit_payload"
+    }
+  
+  } else if [fields][vault_audit_log]{
+    # if this log is parsed directly from vault audit file 
+    grok {
+      match => { "message" => ["%{JSON:vault_audit_payload_unparsed}"] }
+      patterns_dir => ["/etc/logstash/grok-patterns"]
+      remove_field => "message"
+      # Note: it is possible to use already existing fields e.g "vault_audit_%{+YYYY.MM.dd}_%{[host][hostname]}"
+      add_field => { "[@metadata][indexPrefix]" => "vault_audit_%{+YYYY.MM.dd}" }
+    }
+    date {
+      match => [ "[system][syslog][timestamp]", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss" ]
+    }
+    json {
+      source => "vault_audit_payload_unparsed"
+      target => "vault_audit_payload"
+    }
+   
+  }
+  else if  [fields][vault_operational_log] {
+      grok {
+        match => { "message" => ["%{SYSLOGTIMESTAMP:[system][syslog][timestamp]} %{SYSLOGHOST:[system][syslog][hostname]} %{DATA:[system][syslog][program]}(?:\[%{POSINT:[system][syslog][pid]}\])?: %{GREEDYMULTILINE:[system][syslog][message]}"] }
+        patterns_dir => ["/etc/logstash/grok-patterns"]
+        overwrite => [ "message" ]
+        add_field => { "[@metadata][indexPrefix]" => "vault_operational_%{+YYYY.MM}"  }
+      }
+      date {
+        match => [ "[system][syslog][timestamp]", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss" ]
+      }
+    } else if [fileset][name] == "syslog" and ! [fields][vault_operational_log] and ! [fields][vault_audit_log_syslog]{
+   
+    grok {
+      match => { "message" => ["%{SYSLOGTIMESTAMP:[system][syslog][timestamp]} %{SYSLOGHOST:[system][syslog][hostname]} %{DATA:[system][syslog][program]}(?:\[%{POSINT:[system][syslog][pid]}\])?: %{GREEDYMULTILINE:[system][syslog][message]}"] }
+      patterns_dir => ["/etc/logstash/grok-patterns"]
+      overwrite => [ "message" ]
+      add_field => { "[@metadata][indexPrefix]" => "syslog_%{+YYYY.MM}"  }
+    }
+    date {
+      match => [ "[system][syslog][timestamp]", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss" ]
+    }
+    
+  } else {
+      grok {
+   
+        add_field => { "[@metadata][indexPrefix]" => "other_%{+YYYY.MM}"  }
+      }
+  }
+
+}
+output {
+  
+  elasticsearch {
+    hosts => "{{ELASTICSEARCH_IP}}:9200"
+    manage_template => false
+    index => "%{[@metadata][indexPrefix]}"
+    
+    user => "logstash"
+    password => "{{LOGSTASH_PASS}}"
+    ssl => true
+    cacert => "/etc/logstash/main-ca.crt"
+  }
+  
+}
+
+
+ {# output {
+  stdout {
+    codec => rubydebug { metadata => true }
+  }
+} #}

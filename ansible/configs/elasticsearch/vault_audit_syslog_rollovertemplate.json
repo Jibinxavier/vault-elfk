@@ -1,0 +1,6 @@
+{
+    "index_patterns": ["vault_audit_syslog*"],
+    "settings": {
+      "opendistro.index_state_management.rollover_alias": "vlt_audit_stale"
+    }
+  }

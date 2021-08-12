@@ -1,0 +1,51 @@
+
+- name: Setup initial index policies
+  hosts: elk01 
+  gather_facts: no 
+  become: true 
+  tasks:
+    - include_vars:  dir=vars  
+    - name: Fail if vault_token not set
+      fail: msg="This play requires vault_token use --extra  --extra-vars 'vault_token=<token>'"
+      when: vault_token is not defined
+
+    - name: Retrieving ADMIN pass from vault (Assuming passwords are stored in vault) and change this validate_certs false
+      uri:
+        url: "{{vault_addr}}{{item}}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{vault_token}}" 
+        validate_certs: false
+      with_items:
+        - /v1/kv/openstack-dev/ADMIN_PASS  
+      register: output
+      no_log: true 
+
+    - name: Set ADMIN pass    
+      set_fact: 
+        ADMIN_PASS: "{{output.results[0].json.data.value}}" 
+
+    - name: Create index policy 
+      uri:
+        url: "https://{{inventory_hostname}}:9200/_opendistro/_ism/policies/vault_audit_syslog_indexpolicy"
+        user: admin
+        password: "{{ADMIN_PASS}}"
+        method: PUT
+        body: " {{lookup('file','{{playbook_dir}}/configs/elasticsearch/vault_audit_syslog_indexpolicy.json')}} "
+        force_basic_auth: yes
+        status_code: 201
+        body_format: json
+      run_once: true
+
+    - name: Create rollover template
+      uri:
+        url: "https://{{inventory_hostname}}:9200/_template/vault_audit_syslog_rollovertemplate"
+        user: admin
+        password: "{{ADMIN_PASS}}"
+        method: PUT
+        body: "{{ lookup('file','{{playbook_dir}}/configs/elasticsearch/vault_audit_syslog_rollovertemplate.json') }}"
+        force_basic_auth: yes
+        status_code: 200
+        body_format: json
+      run_once: true
+            

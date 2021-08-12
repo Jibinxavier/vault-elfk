@@ -1,0 +1,77 @@
+# Creating master-master cluster
+#
+
+- name: Create certs
+  hosts: localhost
+ 
+  vars: 
+ 
+    servers: 'elasticnodes'
+    main_nodes_ips: "{{ groups[servers] | map('extract', hostvars, ['ansible_host']) | list }}"
+    hostnames: "{{ groups[servers] | list }}"
+    TYPE: 'es_node'
+    MACHINE_MAPPING: "{{ (hostnames | zip(main_nodes_ips)) | list }}"     
+    CREATE_PKCS8_KEY: true
+    CERT_COMMON_NAME: 'es_node'
+
+  roles:
+    - certs-gen
+
+
+- name: Deploy certs and update Elastic config
+  hosts: elasticnodes
+  become: true  
+  
+  vars: 
+    elasticnodes_ip: "{{ groups['elasticnodes'] | map('extract', hostvars, ['ansible_host']) | list }}"
+    subj_alt_name: "{{ ['IP:'] | product( elasticnodes_ip) | map('join', '') |  join(',')  }}"
+  tasks:
+    - name: Distribute certs
+      copy:
+        src: "{{playbook_dir}}/configs/certs/{{item.src}}" # link to ansible special variables https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html
+        dest: "/etc/elasticsearch/{{item.dest}}"
+        owner: elasticsearch
+        group: elasticsearch
+        mode: '0600' 
+      with_items:
+        - { src: "main-ca.crt", dest: "root-ca.crt" } 
+        - { src: "{{inventory_hostname}}_es_node.crt", dest: "esnode.pem" }
+        - { src: "{{inventory_hostname}}_es_node.pem", dest: "esnode-key.pem" }
+
+
+    - name: Make elasticsearch user own /etc/elasticsearch
+      file:
+        path: /etc/elasticsearch
+        owner: elasticsearch
+        group: elasticsearch
+        recurse: true
+      
+    - name: Configure   /etc/elasticsearch/elasticsearch.yml
+      template:
+        src: "{{ playbook_dir }}/configs/templates/elasticsearch-master-{{inventory_hostname}}.yml.j2"
+        dest: "/etc/elasticsearch/elasticsearch.yml"
+    
+    - name: ReStart elasticsearch 
+      systemd:
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+        name: elasticsearch.service
+
+    - name: curl
+      command: "curl -XGET https://{{ansible_ssh_host}}:9200/_cat/nodes?v -u 'admin:admin' --insecure"
+      register: output
+
+    - debug:  msg="{{output}}"
+
+    - name: Add hostname to host file
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^{{item}}' # only add if it doesnt exi
+        line: '{{item}}'
+      with_items:
+        - "127.0.0.1 {{inventory_hostname}}"
+
+ 
+
+## cluster is not bootstraping automatically

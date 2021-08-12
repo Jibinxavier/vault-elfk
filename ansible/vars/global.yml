@@ -1,0 +1,2 @@
+vault_ip: 192.168.0.171
+vault_addr: "https://{{vault_ip}}:8200"

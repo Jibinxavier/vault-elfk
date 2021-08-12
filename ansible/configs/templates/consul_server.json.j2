@@ -1,0 +1,18 @@
+ 
+{
+    "datacenter": "nuc_test",
+    "data_dir": "/opt/consul/data",
+    "log_level": "TRACE",
+    "node_name": "{{ansible_hostname}}",
+    "client_addr": "0.0.0.0", 
+    "bootstrap_expect": 1,
+    "server": true,
+    "encrypt": "{{GOSSIP_ENCRPYPTION_KEY}}",
+    "performance": {
+        "raft_multiplier": 1
+    },
+    "ca_file" : "/etc/consul.d/main-ca.crt",
+    "cert_file" : "/etc/consul.d/{{ansible_hostname}}_server.crt",
+    "key_file" : "/etc/consul.d/{{ansible_hostname}}_server.pem",
+    "retry_join": {{CONSUL_SERVER_IP_LIST}}
+}

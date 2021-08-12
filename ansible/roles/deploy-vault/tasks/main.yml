@@ -1,0 +1,96 @@
+
+- name:  unzip  
+  yum:
+    name:  
+      - unzip  
+    state: present 
+ 
+
+
+- name: Download vault 
+  get_url:
+    url:  "{{VAULT_URL}}/{{VAULT_VERSION}}/vault_{{VAULT_VERSION}}_linux_amd64.zip"
+    dest: "/tmp/vault_{{VAULT_VERSION}}_linux_amd64.zip"
+    mode: '0644'
+# otherwise, when doing a vault status errors will pop up
+- name: add CA to /etc/pki/ca-trust/source/anchors/
+  copy: 
+    src: "{{playbook_dir}}/configs/certs/main-ca.crt"  
+    dest: "/etc/pki/ca-trust/source/anchors/vault-ca.crt"
+    owner: root
+    group: root
+    mode: '0644' 
+
+- name: reload CA
+  command: update-ca-trust extract
+
+- name: Create group
+  group:
+    name: vault
+    state: present
+
+- name: Create system user "vault"  
+  user:
+    name: vault 
+    group: vault 
+    state: present
+    system: yes 
+
+- name: Install unzip
+  yum:
+    name: 
+      - unzip
+    state: present  
+
+- name: Download and Extract vault   
+  unarchive:
+    src: "/tmp/vault_{{VAULT_VERSION}}_linux_amd64.zip"
+    dest: /usr/local/bin/
+    remote_src: yes
+    owner: vault
+    group: vault
+
+- name: Creates vault directory 
+  file:
+    path: "{{item}}"
+    state: directory  
+    owner: vault
+    group: vault
+    recurse: yes
+  with_items:
+    - /vault/data
+    - /etc/vault.d/
+
+- name: Copy vault unit file   
+  copy:
+    src: "{{playbook_dir}}/configs/vault.service"  
+    dest: "/usr/lib/systemd/system/vault.service"
+    owner: root
+    group: root
+    mode: '0644' 
+
+- name: Copy vault config file   
+  template: 
+    src: "{{playbook_dir}}/configs/templates/vault.hcl.j2"  
+    dest: "/etc/vault.d/vault.hcl"
+    owner: vault
+    group: vault
+    mode: '0644'  
+
+- name: Copy vault certs  
+  copy:
+    src: "{{playbook_dir}}/configs/certs/{{item}}"  
+    dest: "/etc/vault.d/{{item}}"
+    owner: vault
+    group: vault
+    mode: '0644'  
+  with_items:
+    - "{{ansible_hostname}}_vault_server.pem"
+    - "{{ansible_hostname}}_vault_server.crt"
+
+- name: Start vault
+  systemd:
+    state: started
+    enabled: yes
+    daemon_reload: yes
+    name: vault

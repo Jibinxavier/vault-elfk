@@ -1,0 +1,71 @@
+---
+
+# Adding opensdistro because it always points to the opensource elasticsearch repo. 
+# Repo from Elastic by default use Elastic licensed tools
+
+- name: Add Elasticsearch repo 
+  get_url:
+    url: https://d3g5vo6xdbdb9a.cloudfront.net/yum/opendistroforelasticsearch-artifacts.repo
+    dest: /etc/yum.repos.d/opendistroforelasticsearch-artifacts.repo
+    mode: '0644'
+  
+- name: Install logstash
+  yum:
+    name:  
+      - logstash
+    state: present 
+
+
+- name: Copy certs  
+  copy:  
+    src: "{{playbook_dir}}/configs/certs/{{item}}"
+    dest: "/etc/logstash/{{item}}"
+    owner: logstash
+    group: logstash
+    mode: '0640'  
+  with_items: 
+    - "{{ansible_hostname}}_{{TYPE}}.pem"
+    - "{{ansible_hostname}}_{{TYPE}}.crt"
+    - "main-ca.crt"
+
+- name: Copy configs
+  copy: 
+    src: "{{playbook_dir}}/configs/logstash/{{item}}"
+    dest: "/etc/logstash/{{item}}"
+    owner: logstash
+    group: logstash
+    mode: '0640' 
+  with_items:
+    - "logstash.yml"
+    - "pipelines.yml" 
+    - "grok-patterns"
+
+- name: Configure  Pipelines (dead letter to capture parse errors)
+  template:
+    src: "{{ playbook_dir }}/configs/logstash/templates/{{item.src}}" 
+    dest: "/etc/logstash/conf.d/{{item.dest}}" 
+    mode: '0640' 
+    owner: logstash
+    group: logstash
+  with_items:
+    -  { src: "logstash.conf.j2", dest: "logstash.conf" } 
+    - { src: "deadletter.conf.j2", dest: "deadletter.conf" } 
+
+
+- name: Make /var/log/logstash logstash:logstash 
+  file: 
+    dest: /var/log/logstash
+    owner: logstash
+    group: logstash 
+    recurse: yes
+
+ 
+- name: Verify configuration using logstash
+  command: /usr/share/logstash/bin/logstash --config.test_and_exit -f  /etc/logstash/conf.d/logstash.conf
+ 
+- name: Start logstash 
+  systemd:
+    state:  restarted
+    enabled: yes
+    daemon_reload: yes
+    name: logstash.service

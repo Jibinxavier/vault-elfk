@@ -1,0 +1,27 @@
+ 
+- module: system
+  syslog:
+    enabled: true
+    var.paths: ["/var/log/messages"]
+
+    input:
+      processors:
+        - if:
+            contains:
+              message: "{\"time\""
+          then: 
+            - add_fields: 
+                fields:
+                  vault_audit_log_syslog: true 
+      # # if vault is found but  {"time" is not found it should be vault operational logs
+      #   - if: 
+      #       and:
+      #       - contains: 
+      #           message: "vault"       
+      #       - not:
+      #           contains: 
+      #             message: "{\"time\""
+      #     then: 
+      #       - add_fields: 
+      #           fields: 
+      #             vault_operational_log: true

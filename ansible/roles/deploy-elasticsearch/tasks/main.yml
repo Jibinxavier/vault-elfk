@@ -1,0 +1,79 @@
+---
+
+ 
+
+ 
+ 
+
+- name: Install yum-utils
+  yum:
+    name: 
+      - yum-utils
+    state: present 
+
+- name: upgrade all packages
+  yum: name=* state=latest
+  
+- name: Check if reboot required
+  command: needs-restarting  -r 
+  ignore_errors: yes
+  register: reboot_required_status
+   
+- name: Reboot machine
+  reboot:
+    reboot_timeout: 3600
+  when: reboot_required_status.rc == 1
+  
+- name: Add Elasticsearch repo 
+  get_url:
+    url: https://d3g5vo6xdbdb9a.cloudfront.net/yum/opendistroforelasticsearch-artifacts.repo
+    dest: /etc/yum.repos.d/opendistroforelasticsearch-artifacts.repo
+    mode: '0644'
+  
+
+- name: Install java-jdkm,wget unzip opendistroforelasticsearch-1.13.2
+  yum:
+    name: 
+      - java-11-openjdk-devel
+      - wget
+      - unzip 
+      - opendistroforelasticsearch-1.13.2
+    state: present 
+
+- name: add CA to /etc/pki/ca-trust/source/anchors/
+  copy: 
+    src: "{{playbook_dir}}/configs/certs/main-ca.crt"  
+    dest: "/etc/pki/ca-trust/source/anchors/elk-ca.crt"
+    owner: root
+    group: root
+    mode: '0644' 
+
+- name: reload CA
+  command: update-ca-trust extract
+
+
+- name: Start elasticsearch 
+  systemd:
+    state: started
+    enabled: yes
+    daemon_reload: yes
+    name: elasticsearch.service
+
+- name: Check Elasticsearch endpoints
+  uri:
+    url: "https://localhost:9200{{item}}"
+    user: admin
+    password: admin
+    method: GET
+    validate_certs: no
+  with_items:
+    - "/"
+    - "/_cat/nodes?v"
+    - "/_cat/plugins?v"
+  register: call_output
+
+ 
+
+- name: Display API call output
+  debug:
+    msg: "{{call_output}}"

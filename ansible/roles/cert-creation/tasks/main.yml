@@ -1,0 +1,73 @@
+
+
+ 
+  
+  
+- name: Creates certs directory 
+  file:
+    path: "{{playbook_dir}}/configs/certs"
+    state: directory  
+
+    # more details https://stackoverflow.com/questions/10175812/how-to-create-a-self-signed-certificate-with-openssl/41366949#41366949 
+    # and https://stackoverflow.com/questions/56350113/ansible-create-a-self-signed-ssl-certificate-and-key
+    # MAY need this https://superuser.com/questions/437330/how-do-you-add-a-certificate-authority-ca-to-ubuntu
+- name: CA- Generate an OpenSSL private key with the default values (4096 bits, RSA)
+  community.crypto.openssl_privatekey:
+    path: "{{playbook_dir}}/configs/certs/ca.pem"
+    
+    #force: true
+    format: "pkcs8"
+- name:  CA- Generate an OpenSSL Certificate Signing Request  
+  openssl_csr:
+    path:  "{{playbook_dir}}/configs/certs/ca.csr"
+    privatekey_path: "{{playbook_dir}}/configs/certs/ca.pem"
+    common_name: NUC_CA
+    state_or_province_name: Dublin
+    basicConstraints: 'CA:TRUE'
+    key_usage:
+      - 'Certificate Sign'
+      - 'CRL Sign'
+  
+    #force: true
+- name: CA - Generate a Self Signed CA OpenSSL certificate
+  openssl_certificate:
+    path:  "{{playbook_dir}}/configs/certs/ca.crt"
+    privatekey_path: "{{playbook_dir}}/configs/certs/ca.pem"
+    csr_path:  "{{playbook_dir}}/configs/certs/ca.csr"
+    provider: selfsigned
+    
+    #force: true
+- name: es_node- Generate an OpenSSL private key(4096 bits, RSA)
+  community.crypto.openssl_privatekey:
+    path: "{{playbook_dir}}/configs/certs/es_node.pem"
+    #force: true
+    format: "pkcs8"
+
+- name:  es_node- Generate an OpenSSL Certificate Signing Request  
+
+  openssl_csr:
+    path: "{{playbook_dir}}/configs/certs/es_node.csr"
+    privatekey_path: "{{playbook_dir}}/configs/certs/es_node.pem"
+    common_name: es_node 
+    subject_alt_name: "IP:127.0.0.1,IP:192.168.9.1,{{subj_alt_name}}"
+    basicConstraints: 'CA:FALSE'
+    key_usage:
+      - 'Digital Signature'
+      - 'Key Encipherment'
+    extended_key_usage:
+      - 'TLS Web Server Authentication'
+      - 'TLS Web Client Authentication'
+    #force: true
+    
+- name: es_node - Generate a cert using own CA
+  openssl_certificate:
+    path: "{{playbook_dir}}/configs/certs/es_node.crt"
+    csr_path: "{{playbook_dir}}/configs/certs/es_node.csr"
+    ownca_path:   "{{playbook_dir}}/configs/certs/ca.crt"
+    ownca_privatekey_path: "{{playbook_dir}}/configs/certs/ca.pem"
+    provider: ownca 
+    #force: true
+
+- name: verify certs 
+  shell: "openssl verify -CAfile {{playbook_dir}}/configs/certs/ca.crt {{playbook_dir}}/configs/certs/es_node.crt "
+    

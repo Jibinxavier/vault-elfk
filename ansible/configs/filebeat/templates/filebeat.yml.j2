@@ -1,0 +1,46 @@
+
+filebeat.inputs:
+
+- type: log
+  paths:
+    - /var/log/consul/consul-*.log 
+  fields:
+    consul: true 
+
+  exclude_files: ['\.gz$']
+
+- type: log
+  paths:
+    - /var/log/consul_backup*.log 
+  fields:
+    consul_backup: true 
+
+  exclude_files: ['\.gz$']
+
+- type: log
+  paths:
+    - /opt/vault/vault_audit.log
+  fields:
+    vault_audit_log: true 
+
+  exclude_files: ['\.gz$']
+
+ 
+
+filebeat.config.modules:
+  path: /etc/filebeat/modules.d/*.yml
+
+  reload.enabled: true 
+  
+#output.console:
+#  pretty: true
+#----------------------------- Logstash output ---------------------------https://www.elastic.co/guide/en/beats/filebeat/6.8/config-filebeat-logstash.html-----
+output.logstash:
+  hosts: ["{{LOGSTASH_IP}}:5044"]
+  ssl.certificate_authorities: ["/etc/filebeat/main-ca.crt"]
+  ssl.certificate: "/etc/filebeat/{{ansible_hostname}}_{{TYPE}}.crt"
+  ssl.key: "/etc/filebeat/{{ansible_hostname}}_{{TYPE}}.pem"
+
+
+processors:
+  - add_host_metadata:

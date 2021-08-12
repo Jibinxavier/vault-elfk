@@ -1,0 +1,137 @@
+---
+
+# Based on https://learn.hashicorp.com/tutorials/consul/deployment-guide
+ 
+- name:  unzip  
+  yum:
+    name:  
+      - unzip  
+    state: present 
+ 
+
+
+- name: Download consul 
+  get_url:
+    url:  "{{CONSUL_URL}}/{{CONSUL_VERSION}}/consul_{{CONSUL_VERSION}}_linux_amd64.zip"
+    dest: "/tmp/consul_{{CONSUL_VERSION}}_linux_amd64.zip"
+    mode: '0644'
+ 
+- name: Create consul group
+  group:
+    name: consul
+    state: present
+ 
+- name: Create system user "consul"  
+  user:
+    name: consul 
+    group: consul 
+    state: present
+    system: yes 
+ 
+
+- name: Extract consul into /usr/bin/
+  unarchive:
+    src: "/tmp/consul_{{CONSUL_VERSION}}_linux_amd64.zip"
+    dest: /usr/bin/
+    group: consul 
+    owner: consul
+    mode: 755
+    remote_src: true
+ 
+
+- name: Create consul directories 
+  file:
+    path: "{{item}}"
+    state: directory
+    owner: consul
+    group: consul 
+  with_items:
+    - /etc/consul.d/
+    - /opt/consul/ 
+    - /var/log/consul
+ 
+ 
+- name: Add the log location to consul.service
+  replace:
+    path: /usr/lib/systemd/system/consul.service
+    regexp: 'ExecStart=.*'
+    replace: 'ExecStart=/usr/bin/consul agent -config-dir=/etc/consul.d/ -log-file=/var/log/ -log-rotate-duration 24h'
+- name: Copy consul agent config file   
+  template:
+    src: "{{playbook_dir}}/configs/templates/consul_agent.json.j2"  
+    dest: "/etc/consul.d/consul.json"
+    owner: consul
+    group: consul
+    mode: '0640' 
+  when: CONSUL_DEPOLYMENT_TYPE == "agent"
+
+- name: Copy consul server config file   
+  template:
+    src: "{{playbook_dir}}/configs/templates/consul_server.json.j2"  
+    dest: "/etc/consul.d/consul.json"
+    owner: consul
+    group: consul
+    mode: '0640' 
+  when: CONSUL_DEPOLYMENT_TYPE == "server"
+
+
+
+- name: Copy consul Server node certs 
+  copy:
+    src: "{{playbook_dir}}/configs/certs/{{item}}"  
+    dest: "/etc/consul.d/{{item}}"
+    owner: consul
+    group: consul
+    mode: '0640' 
+  with_items:
+    - "{{ansible_hostname}}_server.crt"
+    - "{{ansible_hostname}}_server.pem"
+    - "main-ca.crt"
+  when: CONSUL_DEPOLYMENT_TYPE == "server"
+
+- name: Copy consul agent node certs 
+  copy:
+    src: "{{playbook_dir}}/configs/certs/{{item}}"  
+    dest: "/etc/consul.d/{{item}}"
+    owner: consul
+    group: consul
+    mode: '0640' 
+  with_items:
+    - "{{ansible_hostname}}_consul_agent.crt"
+    - "{{ansible_hostname}}_consul_agent.pem"
+    - "main-ca.crt"
+  when: CONSUL_DEPOLYMENT_TYPE == "agent"
+ 
+
+
+- name: Copy service file to consul server
+  copy:
+    src: "{{playbook_dir}}/configs/consul.service"  
+    dest: "/usr/lib/systemd/system/consul.service"
+    owner: root
+    group: root
+    mode: '0644' 
+ 
+  when: CONSUL_DEPOLYMENT_TYPE == "server"
+ 
+
+- name: Copy service file to consul agent
+  copy:
+    src: "{{playbook_dir}}/configs/consul.service"  
+    dest: "/usr/lib/systemd/system/consul.service"
+    owner: root
+    group: root
+    mode: '0644' 
+ 
+  when: CONSUL_DEPOLYMENT_TYPE == "agent"
+ 
+
+- name: Start consul
+  systemd:
+    state: started
+    enabled: yes
+    daemon_reload: yes
+    name: consul
+
+
+ 

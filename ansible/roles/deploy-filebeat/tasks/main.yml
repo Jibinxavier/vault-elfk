@@ -1,0 +1,48 @@
+- name: Add Elasticsearch repo 
+  get_url:
+    url: https://d3g5vo6xdbdb9a.cloudfront.net/yum/opendistroforelasticsearch-artifacts.repo
+    dest: /etc/yum.repos.d/opendistroforelasticsearch-artifacts.repo
+    mode: '0644'
+  
+- name: Install filebeat
+  yum:
+    name:  
+      - filebeat
+    state: present 
+- name: Copy certs  
+  copy:  
+    src: "{{playbook_dir}}/configs/certs/{{item}}"
+    dest: "/etc/filebeat/{{item}}"
+    owner: root
+    group: root
+    mode: '0640' 
+  with_items: 
+    - "{{ansible_hostname}}_{{TYPE}}.pem"
+    - "{{ansible_hostname}}_{{TYPE}}.crt"
+    - "main-ca.crt"
+
+- name: Creates directory /etc/filebeat/modules.d/*
+  file:
+    path: /etc/filebeat/modules.d/*
+    state: directory       
+- name: Copy system.yml module
+  copy:  
+    src: "{{playbook_dir}}/configs/filebeat/modules/system.yml"
+    dest: "/etc/filebeat/modules.d/system.yml" 
+    owner: root
+    group: root
+    mode: '0640' 
+- name: Configure  /etc/filebeat/filebeat.conf
+  template:
+    src: "{{ playbook_dir }}/configs/filebeat/templates/filebeat.yml.j2" 
+    dest: "/etc/filebeat/filebeat.yml"
+    mode: '0640' 
+    owner: root
+    group: root
+
+- name: Start filebeat 
+  systemd:
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
+    name: filebeat.service

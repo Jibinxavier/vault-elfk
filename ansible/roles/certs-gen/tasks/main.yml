@@ -1,0 +1,104 @@
+--- 
+ 
+ 
+
+- name: Creates certs directory 
+  file:
+    path: "{{playbook_dir}}/configs/certs"
+    state: directory  
+
+# more details https://stackoverflow.com/questions/10175812/how-to-create-a-self-signed-certificate-with-openssl/41366949#41366949 
+# and https://stackoverflow.com/questions/56350113/ansible-create-a-self-signed-ssl-certificate-and-key
+# MAY need this https://superuser.com/questions/437330/how-do-you-add-a-certificate-authority-ca-to-ubuntu
+- name: CA- Generate an OpenSSL private key with the default values (4096 bits, RSA)
+  openssl_privatekey:
+    path: "{{playbook_dir}}/configs/certs/main-ca.pem"
+   
+- name:  CA- Generate an OpenSSL Certificate Signing Request  
+  openssl_csr:
+    path:  "{{playbook_dir}}/configs/certs/main-ca.csr"
+    privatekey_path: "{{playbook_dir}}/configs/certs/main-ca.pem"
+    common_name: THE_BEST_INTERNAL_CA
+    state_or_province_name: Dublin
+    basicConstraints: 'CA:TRUE'
+    key_usage:
+      - 'Certificate Sign'
+      - 'CRL Sign'
+  
+   
+- name: CA - Generate a Self Signed CA OpenSSL certificate
+  openssl_certificate:
+    path:  "{{playbook_dir}}/configs/certs/main-ca.crt"
+    privatekey_path: "{{playbook_dir}}/configs/certs/main-ca.pem"
+    csr_path:  "{{playbook_dir}}/configs/certs/main-ca.csr"
+    provider: selfsigned
+    
+
+# expects MACHINE_MAPPING to be like [('elk01', '192.168.9.194'), ('elk02', '192.168.9.179')]"
+
+
+- name: Client- Generate an OpenSSL private key(4096 bits, RSA)
+  openssl_privatekey:
+    path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.pem"
+  with_items:
+    - "{{MACHINE_MAPPING}}"
+  when: CREATE_PKCS8_KEY is not defined
+
+- name: Generate an OpenSSL private key(4096 bits, RSA) pkcs8 format
+  community.crypto.openssl_privatekey:
+    path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.pem"
+    #force: true
+    format: "pkcs8"
+  with_items:
+    - "{{MACHINE_MAPPING}}"
+  when: CREATE_PKCS8_KEY is  defined and CREATE_PKCS8_KEY == True
+
+- name:  Client- Generate an OpenSSL Certificate Signing Request  
+  openssl_csr:
+    path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.csr"
+    privatekey_path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.pem"
+    common_name: "{{item[0]}}" 
+    subject_alt_name: "IP:127.0.0.1,IP:{{item[1]}}"
+    basicConstraints: 'CA:FALSE'
+    key_usage:
+      - 'Digital Signature'
+      - 'Key Encipherment'
+    extended_key_usage:
+      - 'TLS Web Server Authentication'
+      - 'TLS Web Client Authentication'
+  with_items:
+    - "{{MACHINE_MAPPING}}"
+  when: CERT_COMMON_NAME is not defined
+
+- name:  Client- Generate an OpenSSL Certificate Signing Request - different CN
+  openssl_csr:
+    path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.csr"
+    privatekey_path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.pem"
+    common_name: "{{CERT_COMMON_NAME}}" 
+    subject_alt_name: "IP:127.0.0.1,IP:{{item[1]}},DNS:{{item[0]}}"
+    basicConstraints: 'CA:FALSE'
+    key_usage:
+      - 'Digital Signature'
+      - 'Key Encipherment'
+    extended_key_usage:
+      - 'TLS Web Server Authentication'
+      - 'TLS Web Client Authentication'
+  with_items:
+    - "{{MACHINE_MAPPING}}"
+  when: CERT_COMMON_NAME is defined
+
+
+- name: Client - Sign a cert using own CA
+  openssl_certificate:
+    path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.crt"
+    csr_path: "{{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.csr"
+    ownca_path:   "{{playbook_dir}}/configs/certs/main-ca.crt"
+    ownca_privatekey_path: "{{playbook_dir}}/configs/certs/main-ca.pem"
+    provider: ownca 
+  with_items:
+    - "{{MACHINE_MAPPING}}" 
+
+- name: verify certs 
+  shell: "openssl verify -CAfile {{playbook_dir}}/configs/certs/main-ca.crt {{playbook_dir}}/configs/certs/{{item[0]}}_{{TYPE}}.crt" 
+  with_items:
+    - "{{MACHINE_MAPPING}}"   

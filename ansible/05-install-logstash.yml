@@ -1,0 +1,50 @@
+
+- name: Pre-req
+  hosts: elk01 
+  gather_facts: no 
+  become: true 
+  tasks:
+    - include_vars:  dir=vars  
+    - name: Fail if vault_token not set
+      fail: msg="This play requires vault_token use --extra  --extra-vars 'vault_token=<token>'"
+      when: vault_token is not defined
+
+    - name: Retrieving LOGSTASH pass from vault (Assuming passwords are stored in vault) and change this validate_certs false
+      uri:
+        url: "{{vault_addr}}{{item}}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{vault_token}}" 
+        validate_certs: false
+      with_items:
+        - /v1/kv/openstack-dev/LOGSTASH_PASS  
+      register: output
+      no_log: true 
+
+    - name: Set LOGSTASH pass    
+      set_fact: 
+        LOGSTASH_PASS: "{{output.results[0].json.data.value}}" 
+
+
+- name: Create certs 
+  hosts: localhost 
+  vars: 
+    servers: 'logstash'
+    
+    main_nodes_ips: "{{ groups[servers] | map('extract', hostvars, ['ansible_host']) | list }}"
+    hostnames: "{{ groups[servers] | list }}"
+    TYPE: 'logstash_server'
+    MACHINE_MAPPING: "{{ (hostnames | zip(main_nodes_ips)) | list }}"  
+    CREATE_PKCS8_KEY: true
+  roles:
+    - certs-gen
+
+- name: Deploy Logstash 
+  hosts: elk01
+  become: true
+  vars:
+    TYPE: 'logstash_server'
+    ELASTICSEARCH_IP: "{{ansible_ssh_host}}"
+ 
+  roles:
+    - deploy-logstash

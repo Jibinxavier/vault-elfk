@@ -1,0 +1,25 @@
+---
+# For up to date instructions check out https://opendistro.github.io/for-elasticsearch-docs/docs/kibana/
+- name: Install opendistroforelasticsearch-kibana
+  yum:
+    name:  
+      - opendistroforelasticsearch-kibana
+    state: present 
+    
+- name: Bind Kibana listener to all interfaces 
+  lineinfile:
+    path: /etc/kibana/kibana.yml
+    regexp: '^{{item}}' # only add if it doesnt exist
+    line: '{{item}}'
+  with_items:
+    - 'server.host: "0.0.0.0"'
+
+ 
+- name: Start kibana 
+  systemd:
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
+    name: kibana.service
+
+ 

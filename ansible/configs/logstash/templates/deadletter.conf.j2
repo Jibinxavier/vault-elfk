@@ -1,0 +1,26 @@
+input {
+  dead_letter_queue {
+    path => "/var/log/logstash" 
+    add_field => { "[@metadata][indexPrefix]" => "failed_grok_%{+YYYY.MM.dd}" }
+  }
+}
+
+
+
+
+output {
+  
+  elasticsearch {
+    hosts => "{{ELASTICSEARCH_IP}}:9200"
+    manage_template => false
+    index => "%{[@metadata][indexPrefix]}"
+    
+    user => "logstash"
+    password => "{{LOGSTASH_PASS}}"
+    ssl => true
+    cacert => "/etc/logstash/main-ca.crt"
+  }
+
+   stdout { codec => json }
+    
+}

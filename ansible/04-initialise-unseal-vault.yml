@@ -1,0 +1,55 @@
+---
+
+# not a secure approach !
+
+- name: Unseal vault 
+  hosts: vaults
+
+  run_once: true
+  tasks:
+    - name: vault status
+      command: vault status
+      register: output
+      ignore_errors: true
+
+    - debug:
+        msg: "{{output}}"
+    - name: Initialise vault if not initialised
+      shell: vault operator init >  key.txt
+      when: '"Initialized        true" not in output.stdout'
+
+    - name: Unseal key 1/3 
+      shell: vault operator unseal $(grep 'Key 1:' key.txt | awk '{print $NF}')
+    
+
+    - name: Unseal key 2/3 
+      shell: vault operator unseal $(grep 'Key 2:' key.txt | awk '{print $NF}')
+      
+    - name: Unseal key 3/3 
+      shell: vault operator unseal $(grep 'Key 3:' key.txt | awk '{print $NF}')
+     
+    - name: vault status
+      command: vault status
+      register: output
+
+    - debug:
+        msg: "{{output}}"
+
+    - name: Login with root token
+      shell: vault login $(grep 'Initial Root Token:' key.txt | awk '{print $NF}')
+
+    - name: Enable audit logs
+      shell: vault audit enable syslog
+
+    - name: Enable kv 
+      shell: vault secrets enable -version=1 kv
+
+
+    - name: Storing in a path relative to the playbook
+      fetch:
+        src:  key.txt
+        dest: key-{{ inventory_hostname }}.txt
+        flat: yes
+    
+
+ 

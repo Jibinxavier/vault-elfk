@@ -1,0 +1,66 @@
+{
+  "policy": {
+    "description": "hot warm delete workflow",
+    "default_state": "hot",
+    "schema_version": 2,
+    "states": [
+      {
+        "name": "hot",
+        "actions": [
+          {
+            "rollover": {
+              "min_index_age": "1d"
+            }
+          }
+        ],
+        "transitions": [
+          {
+            "state_name": "warm"
+          }
+        ]
+      },
+      {
+        "name": "warm",
+        "actions": [
+          {
+            "allocation": {
+              "require": {
+                "box_type": "warm"
+              }
+            }
+          },
+          {
+            "replica_count": {
+              "number_of_replicas": 1
+            }
+          },
+          {
+            "read_only": {}
+          }
+        ],
+        "transitions": [
+          {
+            "state_name": "delete",
+            "conditions": {
+              "min_index_age": "2d"
+            }
+          }
+        ]
+      },
+      {
+        "name": "delete",
+        "actions": [
+          {
+            "delete": {}
+          }
+        ]
+      }
+    ],
+    "ism_template": {
+    "index_patterns": [
+      "vault_audit_syslog*"
+    ],
+    "priority": 99
+    }
+  }
+}

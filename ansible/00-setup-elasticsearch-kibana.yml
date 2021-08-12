@@ -1,0 +1,12 @@
+- name: Setup base elasticsearch
+  hosts: elasticnodes
+  become: true 
+  roles:
+    - deploy-elasticsearch
+
+
+- name: Setup base kibana
+  hosts: elk01
+  become: true 
+  roles:
+    - deploy-kibana
