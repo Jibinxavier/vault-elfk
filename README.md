@@ -5,6 +5,9 @@ Demonstration of [Vault audit log](https://www.vaultproject.io/docs/audit) parsi
 The stack also includes OSS version of Logstash and Filebeat (i.e Apache2 license).
 
 This setup is built on OpenStack cluster https://github.com/Jibinxavier/Openstack-Homelab 
+
+
+![](docs/walkthrough.gif)
 ## Architecture 
 
 ![](docs/arch.png)
@@ -39,3 +42,10 @@ Main Ansible roles are:
 - [deploy-kibana](ansible/roles/deploy-kibana)
 - [deploy-logstash](ansible/roles/deploy-logstash)
 - [deploy-vault](ansible/roles/deploy-vault)
+
+
+### TODO
+
+- Dashboards
+- Improve separation of Vault audit logs and vault operational logs
+- Better access control - not using admin
